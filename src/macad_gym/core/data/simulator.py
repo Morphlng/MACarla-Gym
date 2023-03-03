@@ -14,6 +14,7 @@ import logging
 import random
 import time
 import math
+import weakref
 import carla
 
 from macad_gym.core.data.carla_data_provider import CarlaDataProvider
@@ -106,16 +107,20 @@ class Simulator:
         self._sensor_provider = SensorDataProvider()
         self._game_time = GameTime()
 
-        self.init_server(env)
-
         # handle termination
+        weak_self = weakref.ref(self)
+
         def termination_cleanup(*_):
-            self.clear_server_state()
+            this = weak_self()
+            if this:
+                this.clear_server_state()
             sys.exit(0)
 
         signal.signal(signal.SIGTERM, termination_cleanup)
         signal.signal(signal.SIGINT, termination_cleanup)
-        atexit.register(self.clear_server_state)
+        atexit.register(termination_cleanup)
+
+        self.init_server(env)
 
     def init_server(self, env):
         """Create the server based on MultiCarlaEnv's config
@@ -276,7 +281,8 @@ class Simulator:
         )
 
         # Set GameTime callback (Should be manually removed)
-        self.add_callback(lambda snapshot: self._game_time.on_carla_tick(snapshot.timestamp))
+        weak_timer = weakref.ref(self._game_time)
+        self.add_callback(lambda snapshot: GameTime.on_carla_tick(weak_timer, snapshot.timestamp))
 
         # Set the spectator/server view if rendering is enabled
         if env._render and env._env_config.get("spectator_loc"):
@@ -623,10 +629,11 @@ class Simulator:
 
     def tick(self):
         """Tick the simulator."""
+        world = self.get_world()
         if self._data_provider.is_sync_mode():
-            self.get_world().tick()
+            world.tick()
         else:
-            self.get_world().wait_for_tick()
+            world.wait_for_tick()
 
         self._data_provider.on_carla_tick()
 
@@ -636,8 +643,8 @@ class Simulator:
         Args:
             func (callable): A function to be called on every tick. E.g. 
 
-            def func(timestamp):
-                print(timestamp)
+            def func(snapshot):
+                print(snapshot)
 
         Returns:
             id (int) : The id of the callback.
@@ -659,6 +666,7 @@ class Simulator:
 
     def clear_server_state(self):
         """Clear server process"""
+
         print("Clearing Carla server state")
         self._sensor_provider.cleanup()
         self._data_provider.cleanup(completely=True)

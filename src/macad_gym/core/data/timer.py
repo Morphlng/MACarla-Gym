@@ -31,19 +31,6 @@ class GameTime(object):
         self._platform_timestamp = 0
         self._init = False
 
-    def on_carla_tick(self, timestamp):
-        """
-        Callback receiving the CARLA time
-        Update time only when frame is more recent that last frame
-        """
-        if self._last_frame < timestamp.frame:
-            frames = timestamp.frame - self._last_frame if self._init else 1
-            self._current_game_time += timestamp.delta_seconds * frames
-            self._last_frame = timestamp.frame
-            self._platform_timestamp = datetime.datetime.now()
-            self._init = True
-            self._carla_time = timestamp.elapsed_seconds
-
     def restart(self):
         """
         Reset game timer to 0
@@ -76,6 +63,24 @@ class GameTime(object):
         Returns elapsed game time
         """
         return self._last_frame
+
+    @staticmethod
+    def on_carla_tick(weak_self, timestamp):
+        """
+        Callback receiving the CARLA time
+        Update time only when frame is more recent that last frame
+        """
+        self = weak_self()
+        if not self:
+            return
+
+        if self._last_frame < timestamp.frame:
+            frames = timestamp.frame - self._last_frame if self._init else 1
+            self._current_game_time += timestamp.delta_seconds * frames
+            self._last_frame = timestamp.frame
+            self._platform_timestamp = datetime.datetime.now()
+            self._init = True
+            self._carla_time = timestamp.elapsed_seconds
 
 
 class SimulationTimeCondition(py_trees.behaviour.Behaviour):

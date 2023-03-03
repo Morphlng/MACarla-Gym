@@ -33,10 +33,11 @@ class HUD(object):
         self.frame_number = timestamp.frame_count
         self.simulation_time = timestamp.elapsed_seconds
 
-    def tick(self, world, vehicle, collision_sensor, clock):
+    def tick(self, vehicle, collision_sensor, clock):
         if not self._show_info:
             return
 
+        world = vehicle.get_world()
         t = vehicle.get_transform()
         v = vehicle.get_velocity()
         c = vehicle.get_control()

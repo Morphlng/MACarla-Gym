@@ -4,6 +4,7 @@ __author__: Morphlng
 '''
 
 import carla
+import weakref
 from macad_gym.core.agents.autonomous_agent import AutonomousAgent
 
 
@@ -43,7 +44,10 @@ class MacadAgent(AutonomousAgent):
 
         self.obs = None
         self.sensor_list = []
-        self.callbacks = [self.simulator.add_callback(self.on_carla_tick)]
+
+        weak_self = weakref.ref(self)
+        self.callbacks = [self.simulator.add_callback(
+            lambda snapshot: MacadAgent.on_carla_tick(weak_self))]
         self.parse_sensors()
 
     def sensors(self):
@@ -86,21 +90,6 @@ class MacadAgent(AutonomousAgent):
 
             self.sensor_list.append(sensor_spec)
 
-    def on_carla_tick(self, snapshot):
-        """Update obs on carla tick
-
-        As a member function, this would cause circular reference.
-        We could either use weakref and make this a static function,
-        or remove callback when destroy is called.
-        """
-        if not self.sensor_interface._new_data_buffers.empty():
-            self.obs = self.sensor_interface.get_data()
-
-        self.simulator._sensor_provider.update_camera_data(
-            self.actor_config["actor_id"], self.obs)
-
-        # TODO: check actor_config["log_images"] to save image
-
     def __call__(self, action=None):
         """
         Execute the agent call, e.g. agent()
@@ -120,3 +109,19 @@ class MacadAgent(AutonomousAgent):
         self.actor_config = None
         self.sensor_list = []
         self.callbacks = []
+
+    @staticmethod
+    def on_carla_tick(weak_self):
+        """Update obs on carla tick
+        """
+        self = weak_self()
+        if not self:
+            return
+
+        if not self.sensor_interface._new_data_buffers.empty():
+            self.obs = self.sensor_interface.get_data()
+
+        self.simulator._sensor_provider.update_camera_data(
+            self.actor_config["actor_id"], self.obs)
+
+        # TODO: check actor_config["log_images"] to save image
