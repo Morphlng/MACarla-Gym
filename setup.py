@@ -18,7 +18,7 @@ long_description = long_description.replace(
     "(" + rel_img_path, "(" + github_uri_prefix + rel_img_path)
 
 setup(
-    name="macarla-gym",
+    name="macad-gym",
     version='0.1.0',
     description='A Gym environment for multi-agent RL training in CARLA',
     long_description=long_description,
