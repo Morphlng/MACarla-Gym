@@ -454,7 +454,7 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
         for retry in range(RETRIES_ON_ERROR):
             vehicle = self._simulator.request_new_actor(
                 model, transform, rolename=actor_id,
-                autopilot=self._actor_configs[actor_id].get("auto_control", False),
+                autopilot=False,
                 safe_blueprint=self.exclude_hard_vehicles
             )
 
@@ -827,7 +827,6 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
             # update planned route, this will affect _read_observation()
             path_tracker = self._path_trackers[actor_id]
             planned_action = path_tracker.run_step()
-            print(f"planned action for {actor_id} is {planned_action}")
 
         if config["manual_control"]:
             self.human_agent._agent._hic._hud.tick(

@@ -30,7 +30,7 @@ setup(
     package_dir={'': 'src'},
     python_requires='>=3.6',
     install_requires=[
-        'gym', 'carla>=0.9.13', 'GPUtil', 'pygame', 'opencv-python', 'networkx', 'numpy<=1.23.4', 'py_trees', 'shapely'
+        'gym', 'carla>=0.9.13', 'GPUtil', 'pygame', 'opencv-python', 'networkx', 'numpy<=1.23.4', 'py_trees', 'shapely', 'six'
     ],
     extras_require={'test': ['tox', 'pytest', 'pytest-xdist',
                              'tox'], 'ray': ['ray==1.8.0', 'ray[tune]', 'ray[rllib]']},
