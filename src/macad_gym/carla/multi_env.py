@@ -183,7 +183,10 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
         """
 
         if configs is None:
-            configs = DEFAULT_MULTIENV_CONFIG
+            self.configs = DEFAULT_MULTIENV_CONFIG
+        else:
+            self.configs = configs
+        
         # Functionalities classes
         self._reward_policy = Reward()
         configs["scenarios"] = Scenarios.resolve_scenarios_parameter(
