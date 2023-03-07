@@ -2,6 +2,16 @@
 
 This repo is a fork from [praveen-palanisamy/macad-gym](https://github.com/praveen-palanisamy/macad-gym). We've done some modification to the data layer and some improvement over performance. Due to the inconsistency of some behavior, this repo **will not** merge to macad-gym's master branch. 
 
+To run macad-gym correctly, you'll have to make sure these following environment variable are set:
+
+```bash
+echo "export CARLA_ROOT=${HOME}/software/CARLA_0.9.13" >> ~/.bashrc
+echo "export CARLA_SERVER=${CARLA_ROOT}/CarlaUE4.sh" >> ~/.bashrc
+echo "export PYTHONPATH=${CARLA_ROOT}/PythonAPI/carla:${PYTHONPATH}" >> ~/.bashrc
+```
+
+> CARLA_ROOT should be the installation directory of your Carla.
+
 # Integration with MARLlib
 
 Multi-Agent RLlib (MARLlib) is a comprehensive Multi-Agent Reinforcement Learning algorithm library based on Ray and one of its toolkits RLlib. It provides MARL research community with a unified platform for building, training, and evaluating MARL algorithms.
@@ -63,7 +73,7 @@ Our [fork of MARLlib](https://github.com/Morphlng/MARLlib) provide the integrati
 
     ```bash
     cd MARLlib
-
+    
     python marl/main.py --env_config=macad --algo_config=mappo --finetuned
     ```
 
