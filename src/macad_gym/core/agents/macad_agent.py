@@ -11,13 +11,13 @@ from macad_gym.core.agents.autonomous_agent import AutonomousAgent
 def sensor_name_to_bp(camera_type):
     """Convert sensor name to blueprint
     """
-    if camera_type == "rgb":
+    if "rgb" in camera_type:
         return "sensor.camera.rgb"
     elif "depth" in camera_type:
         return "sensor.camera.depth"
     elif "semseg" in camera_type:
         return "sensor.camera.semantic_segmentation"
-    elif camera_type == "lidar":
+    elif "lidar" in camera_type:
         return "sensor.lidar.ray_cast"
     else:
         raise ValueError("Unknown sensor name: {}".format(camera_type))
@@ -74,9 +74,9 @@ class MacadAgent(AutonomousAgent):
             sensor_spec.update(self._camera_transforms[camera_pos])
 
             # Use default values to meet AgentWrapper's requirement
-            if camera_type == 'rgb':
+            if sensor_spec['type'].startswith('sensor.camera'):
                 sensor_spec.update({'fov': 90})
-            elif camera_type == 'lidar':
+            elif sensor_spec['type'].startswith('sensor.lidar'):
                 sensor_spec.update(
                     {
                         'range': 10.0,

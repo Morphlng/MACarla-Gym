@@ -38,7 +38,7 @@ class PathTracker:
                            y=destination[1], z=destination[2]),
             carla.Location(x=origin[0], y=origin[1], z=origin[2])
         )
-        self.dest_waypoint = None
+        self.dest_waypoint = self.get_path()[-1][0]
         self.last_location = None
         self.distance_cache = 0.0
 
@@ -121,7 +121,4 @@ class PathTracker:
             deque[Tuple(carla.Waypoint, RoadOption)]
         """
         path = self.agent._local_planner.get_plan()
-        if len(path) > 0:
-            self.dest_waypoint = path[-1][0]
-
         return path

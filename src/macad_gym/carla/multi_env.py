@@ -186,7 +186,7 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
             self.configs = DEFAULT_MULTIENV_CONFIG
         else:
             self.configs = configs
-        
+
         # Functionalities classes
         self._reward_policy = Reward()
         configs["scenarios"] = Scenarios.resolve_scenarios_parameter(
@@ -234,13 +234,16 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
         self._server_port = self._env_config.get("server_port", None)
         self._render = self._env_config.get("render", False)
         self._framestack = self._env_config.get("framestack", 1)
-        self._squash_action_logits = self._env_config.get("squash_action_logits", False)
+        self._squash_action_logits = self._env_config.get(
+            "squash_action_logits", False)
         self._verbose = self._env_config.get("verbose", False)
         self._render_x_res = self._env_config.get("render_x_res", 800)
         self._render_y_res = self._env_config.get("render_y_res", 600)
-        self._use_depth_camera = self._env_config.get("use_depth_camera", False)
+        self._use_depth_camera = self._env_config.get(
+            "use_depth_camera", False)
         self._sync_server = self._env_config.get("sync_server", True)
-        self._fixed_delta_seconds = self._env_config.get("fixed_delta_seconds", 0.05)
+        self._fixed_delta_seconds = self._env_config.get(
+            "fixed_delta_seconds", 0.05)
 
         # Belongs to env_config. Required parameters are retrieved directly (Exception if not found)
         self._server_map = self._env_config["server_map"]
@@ -439,9 +442,11 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
             # Find closest traffic light actor in world.actor_list and return
             from macad_gym.core.controllers import traffic_lights
 
-            transform = self._simulator.generate_spawn_point(self._start_pos[actor_id])
+            transform = self._simulator.generate_spawn_point(
+                self._start_pos[actor_id])
             self._actor_configs[actor_id]["start_transform"] = transform
-            tls = traffic_lights.get_tls(self._simulator.get_world(), transform, sort=True)
+            tls = traffic_lights.get_tls(
+                self._simulator.get_world(), transform, sort=True)
             #: Return the key (carla.TrafficLight object) of closest match
             return tls[0][0]
 
@@ -451,7 +456,8 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
             # TODO: We lost the ability to spawn 2W vehicles. Need to fix this
             model = "vehicle"
 
-        transform = self._simulator.generate_spawn_point(self._start_pos[actor_id])
+        transform = self._simulator.generate_spawn_point(
+            self._start_pos[actor_id])
         self._actor_configs[actor_id]["start_transform"] = transform
         vehicle = None
         for retry in range(RETRIES_ON_ERROR):
@@ -568,7 +574,8 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
                     })
                     agent = AgentWrapper(HumanAgent(actor_config))
                     agent.setup_sensors(actor_spawned)
-                    self.human_agent = agent    # quick access to human agent
+                    self.human_agent = {
+                        'agent': agent._agent, 'actor_id': actor_id, 'id': actor_spawned.id}
 
                 self._agents[actor_id] = agent
 
@@ -674,12 +681,14 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
             image = np.concatenate([prev_image, image])
         # Structure the observation
         if not self._actor_configs[actor_id]["send_measurements"]:
-            return image
-        obs = (
-            image,
-            COMMAND_ORDINAL[py_measurements["next_command"]],
-            [py_measurements["forward_speed"], py_measurements["distance_to_goal"]],
-        )
+            obs = image
+        else:
+            obs = (
+                image,
+                COMMAND_ORDINAL[py_measurements["next_command"]],
+                [py_measurements["forward_speed"],
+                    py_measurements["distance_to_goal"]],
+            )
 
         self._last_obs = obs
         return obs
@@ -747,8 +756,13 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
                 if not self._done_dict.get(actor_id, False):
                     self._done_dict[actor_id] = done
                 info_dict[actor_id] = info
-            
-            self._done_dict["__all__"] = sum(self._done_dict.values()) >= len(self._actors)
+
+            # TODO: Fix tick time to be more efficient
+            for _ in range(2):
+                self._simulator.tick()
+
+            self._done_dict["__all__"] = sum(
+                self._done_dict.values()) >= len(self._actors)
             # Find if any actor's config has render=True & render only for
             # that actor. NOTE: with async server stepping, enabling rendering
             # affects the step time & therefore MAX_STEPS needs adjustments
@@ -817,27 +831,32 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
             print(action_dict)
 
         cur_id = self._actors[actor_id]
-        if self.human_agent is not None:
-            human_action = self.human_agent(action_dict)
-            if self.human_agent._agent.use_autopilot:
-                self._simulator.toggle_actor_autopilot(cur_id, True)
-            else:
-                self._simulator.toggle_actor_autopilot(cur_id, False)
-                self._simulator.apply_actor_control(cur_id, human_action)
-
         config = self._actor_configs[actor_id]
         if config["enable_planner"]:
             # update planned route, this will affect _read_observation()
             path_tracker = self._path_trackers[actor_id]
             planned_action = path_tracker.run_step()
 
-        if config["manual_control"]:
-            self.human_agent._agent._hic._hud.tick(
-                self._simulator.get_actor_by_id(cur_id),
-                self._simulator.get_actor_collision_sensor(actor_id),
-                self.human_agent._agent._hic._clock,
+        if self.human_agent is not None:
+            agent = self.human_agent['agent']
+            human_action = agent(action_dict)
+            if agent.use_autopilot:
+                self._simulator.toggle_actor_autopilot(
+                    self.human_agent['id'], True)
+            else:
+                self._simulator.toggle_actor_autopilot(
+                    self.human_agent['id'], False)
+                self._simulator.apply_actor_control(
+                    self.human_agent['id'], human_action)
+
+            agent._hic._hud.tick(
+                self._simulator.get_actor_by_id(self.human_agent['id']),
+                self._simulator.get_actor_collision_sensor(
+                    self.human_agent['actor_id']),
+                agent._hic._clock,
             )
-        elif config["auto_control"]:
+
+        if config["auto_control"]:
             if config["enable_planner"]:
                 # Apply BasicAgent's action, this will navigate the actor to defined destination.
                 # However, the BasicAgent doesn't take consideration of some rules, such as stop sign.
@@ -847,9 +866,8 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
                 self._simulator.toggle_actor_autopilot(cur_id, True)
         else:
             # Apply RL agent action
-            self._simulator.apply_actor_control(cur_id, self._agents[actor_id](action_dict))
-
-        self._simulator.tick()
+            self._simulator.apply_actor_control(
+                cur_id, self._agents[actor_id](action_dict))
 
         # Process observations
         py_measurements = self._read_observation(actor_id)
@@ -934,7 +952,8 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
         """
         cur_id = self._actors[actor_id]
         cur_config = self._actor_configs[actor_id]
-        (cur_x, cur_y, cur_z), (cur_pitch, cur_yaw, cur_roll) = self._simulator.get_actor_transform(cur_id, decompose=True)
+        (cur_x, cur_y, cur_z), (cur_pitch, cur_yaw,
+                                cur_roll) = self._simulator.get_actor_transform(cur_id, decompose=True)
         cur_velocity = self._simulator.get_actor_velocity(cur_id)
         distance_to_goal_euclidean = float(
             np.linalg.norm(
@@ -973,7 +992,8 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
         if next_command == "REACH_GOAL":
             distance_to_goal = 0.0
         elif planner_enabled:
-            distance_to_goal = self._path_trackers[actor_id].get_distance_to_end()
+            distance_to_goal = self._path_trackers[actor_id].get_distance_to_end(
+            )
         else:
             distance_to_goal = distance_to_goal_euclidean
 
@@ -982,7 +1002,8 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
         collision_other = None
         collision_pedestrians = None
         if cur_config.get("collision_sensor", "off") == "on":
-            collision_sensor = self._simulator.get_actor_collision_sensor(actor_id)
+            collision_sensor = self._simulator.get_actor_collision_sensor(
+                actor_id)
             collision_vehicles = collision_sensor.collision_vehicles
             collision_pedestrians = collision_sensor.collision_pedestrians
             collision_other = collision_sensor.collision_other
@@ -990,7 +1011,8 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
         intersection_otherlane = None
         intersection_offroad = None
         if cur_config.get("lane_sensor", "off") == "on":
-            lane_sensor = self._simulator.get_actor_lane_invasion_sensor(actor_id)
+            lane_sensor = self._simulator.get_actor_lane_invasion_sensor(
+                actor_id)
             intersection_otherlane = lane_sensor.offlane
             intersection_offroad = lane_sensor.offroad
 

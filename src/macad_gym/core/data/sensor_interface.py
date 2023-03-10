@@ -177,11 +177,25 @@ class CallBack(object):
         else:
             logging.error('No callback method for this sensor.')
 
+    def _converter(self, tag):
+        '''
+        Get the converter for the sensor according to tag
+        '''
+        tag = tag.lower()
+
+        if 'depth' in tag:
+            return carla.ColorConverter.LogarithmicDepth  # carla.ColorConverter.Depth
+        elif 'semseg' in tag:
+            return carla.ColorConverter.CityScapesPalette
+        else:
+            return carla.ColorConverter.Raw
+
     # Parsing CARLA physical Sensors
     def _parse_image_cb(self, image, tag):
         """
         parses cameras
         """
+        image.convert(self._converter(tag))
         array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
         array = copy.deepcopy(array)
         array = np.reshape(array, (image.height, image.width, 4))

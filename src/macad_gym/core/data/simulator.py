@@ -268,7 +268,8 @@ class Simulator:
         world.apply_settings(world_settings)
 
         # Set up traffic manager
-        traffic_manager = self._client.get_trafficmanager()
+        tm_port = get_tcp_port()
+        traffic_manager = self._client.get_trafficmanager(tm_port)
         traffic_manager.set_global_distance_to_leading_vehicle(2.5)
         traffic_manager.set_respawn_dormant_vehicles(True)
         traffic_manager.set_synchronous_mode(env._sync_server)
@@ -276,13 +277,12 @@ class Simulator:
         # Prepare data provider
         self._data_provider.set_client(self._client)
         self._data_provider.set_world(world)
-        self._data_provider.set_traffic_manager_port(
-            traffic_manager.get_port()
-        )
+        self._data_provider.set_traffic_manager_port(tm_port)
 
         # Set GameTime callback (Should be manually removed)
         weak_timer = weakref.ref(self._game_time)
-        self.add_callback(lambda snapshot: GameTime.on_carla_tick(weak_timer, snapshot.timestamp))
+        self.add_callback(lambda snapshot: GameTime.on_carla_tick(
+            weak_timer, snapshot.timestamp))
 
         # Set the spectator/server view if rendering is enabled
         if env._render and env._env_config.get("spectator_loc"):
@@ -308,13 +308,18 @@ class Simulator:
         """
         return self._data_provider.get_world()
 
-    def get_traffic_manager(self):
-        """Get the traffic manager.
+    def get_traffic_manager(self, port=None):
+        """Get a traffic manager. 
+        This function will try to find an existing TM on the given port.
+        If no port is given, it will use the current port in the env.
 
         Returns:
             carla.TrafficManager: The traffic manager.
         """
-        return self._client.get_trafficmanager()
+        if port is None:
+            port = self.get_traffic_manager_port()
+
+        return self._client.get_trafficmanager(port)
 
     def get_traffic_manager_port(self):
         """Get the traffic manager port.
@@ -549,7 +554,8 @@ class Simulator:
         for n, transform in enumerate(spawn_points):
             # spawn the cars and set their autopilot and light state all together
             vehicle = self._data_provider.request_new_actor(
-                "vehicle", transform, rolename="autopilot", autopilot=True, safe_blueprint=safe)
+                "vehicle", transform, rolename="autopilot",
+                autopilot=True, safe_blueprint=safe, tick=False)
             if vehicle is not None:
                 vehicles_list.append(vehicle)
             else:
@@ -595,10 +601,12 @@ class Simulator:
             else:
                 speed = 0.0
             pedestrian = self._data_provider.request_new_actor(
-                "walker.pedestrian", spawn_point, actor_category="pedestrian", blueprint=pedestrian_bp)
+                "walker.pedestrian", spawn_point, actor_category="pedestrian",
+                blueprint=pedestrian_bp, tick=False)
             if pedestrian is not None:
                 controller = self._data_provider.request_new_actor(
-                    "controller.ai.walker", carla.Transform(), attach_to=pedestrian, blueprint=pedestrian_controller_bp)
+                    "controller.ai.walker", carla.Transform(), attach_to=pedestrian,
+                    blueprint=pedestrian_controller_bp, tick=False)
                 if controller is not None:
                     pedestrians_list.append(pedestrian)
                     controllers_list.append(controller)
@@ -611,7 +619,6 @@ class Simulator:
 
         logger.info(
             "{}/{} pedestrians correctly spawned.".format(num_pedestrians-failed_p, num_pedestrians))
-        self.tick()
 
         # Initialize each controller and set target to walk
         world.set_pedestrians_cross_factor(percentagePedestriansCrossing)

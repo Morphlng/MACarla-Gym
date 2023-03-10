@@ -100,9 +100,6 @@ class AgentWrapper(object):
             sensor.listen(CallBack(sensor_spec['id'], sensor, self._agent.sensor_interface))
             self._sensors_list.append(sensor)
 
-        # Tick once to spawn the sensors
-        vehicle.get_world().tick()
-
     def cleanup(self):
         """
         Remove and destroy all sensors
