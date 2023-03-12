@@ -405,7 +405,7 @@ class Simulator:
             Dict: image data from sensor_interface.get_data(). E.g.
 
             data = {
-                "sensor_id": (raw_data : carla.Image, processed_data : ndarray),
+                "sensor_id": (frame : int, processed_data : ndarray),
                 ...
             }
         """

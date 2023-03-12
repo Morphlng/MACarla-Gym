@@ -62,8 +62,6 @@ class MacadAgent(AutonomousAgent):
             camera_types = [camera_types]
 
         for camera_type in camera_types:
-            camera_pos = self.actor_config.get("camera_position", 0)
-
             sensor_spec = {
                 'id': camera_type,
                 'type': sensor_name_to_bp(camera_type),
@@ -71,7 +69,6 @@ class MacadAgent(AutonomousAgent):
                 'height': self.actor_config["y_res"],
                 'attachment_type': carla.AttachmentType.Rigid,
             }
-            sensor_spec.update(self._camera_transforms[camera_pos])
 
             # Use default values to meet AgentWrapper's requirement
             if sensor_spec['type'].startswith('sensor.camera'):
@@ -87,6 +84,12 @@ class MacadAgent(AutonomousAgent):
                         'points_per_second': 56000,
                     }
                 )
+
+            camera_pos = self.actor_config.get("camera_position", 0)
+            if isinstance(camera_pos, dict):
+                sensor_spec.update(camera_pos)
+            else:
+                sensor_spec.update(self._camera_transforms[camera_pos])
 
             self.sensor_list.append(sensor_spec)
 
@@ -121,7 +124,7 @@ class MacadAgent(AutonomousAgent):
         if not self.sensor_interface._new_data_buffers.empty():
             self.obs = self.sensor_interface.get_data()
 
-        self.simulator._sensor_provider.update_camera_data(
-            self.actor_config["actor_id"], self.obs)
+        actor_id = self.actor_config.get("actor_id", "global")
+        self.simulator._sensor_provider.update_camera_data(actor_id, self.obs)
 
         # TODO: check actor_config["log_images"] to save image

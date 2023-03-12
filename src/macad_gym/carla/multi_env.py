@@ -26,7 +26,7 @@ from macad_gym.core.sensors.utils import preprocess_image
 from macad_gym.core.maps.nodeid_coord_map import MAP_TO_COORDS_MAPPING
 
 from macad_gym.core.data.simulator import Simulator, CARLA_OUT_PATH
-from macad_gym.core.agents import AgentWrapper, HumanAgent, RLAgent
+from macad_gym.core.agents import AgentWrapper, HumanAgent, RLAgent, MacadAgent
 
 from macad_gym.carla.reward import Reward
 from macad_gym.carla.scenarios import Scenarios
@@ -127,6 +127,9 @@ RETRIES_ON_ERROR = 2
 
 # Dummy Z coordinate to use when we only care about (x, y)
 GROUND_Z = 22
+
+# How many tick will perform in one step
+STEP_TICKS = 2
 
 DISCRETE_ACTIONS = {
     # coast
@@ -244,13 +247,17 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
         self._sync_server = self._env_config.get("sync_server", True)
         self._fixed_delta_seconds = self._env_config.get(
             "fixed_delta_seconds", 0.05)
+        self._global_obs_conf = self._env_config.get(
+            "global_observation", None)
 
         # Belongs to env_config. Required parameters are retrieved directly (Exception if not found)
         self._server_map = self._env_config["server_map"]
         self._map = self._server_map.split("/")[-1]
         self._discrete_actions = self._env_config["discrete_actions"]
-        self._x_res = self._env_config["x_res"]
-        self._y_res = self._env_config["y_res"]
+        self._obs_x_res = self._env_config["obs_x_res"]
+        self._obs_y_res = self._env_config["obs_y_res"]
+        for config in self._actor_configs.values():
+            config.update({"x_res": self._obs_x_res, "y_res": self._obs_y_res})
 
         # For manual_control
         self.human_agent = None
@@ -259,7 +266,7 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
         Render.resize_screen(self._render_x_res, self._render_y_res)
 
         self._camera_poses, window_dim = Render.get_surface_poses(
-            [self._x_res, self._y_res], self._actor_configs
+            [self._obs_x_res, self._obs_y_res], self._actor_configs
         )
 
         if manual_control_count == 0:
@@ -271,30 +278,46 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
                 self._render_y_res + window_dim[1],
             )
 
+        if self._global_obs_conf.get("render", False):
+            self._global_view_pos = (
+                Render.resX, window_dim[1]) if manual_control_count != 0 else (0, window_dim[1])
+
+            Render.resize_screen(
+                max(Render.resX, self._global_obs_conf["x_res"]
+                    ) if manual_control_count == 0 else Render.resX + self._global_obs_conf["x_res"],
+                max(Render.resY, self._global_obs_conf["y_res"] + window_dim[1]))
+        else:
+            self._global_view_pos = None
+
+        # A list is False if empty
+        self.render_required = (True if [
+            k for k, v in self._actor_configs.items() if v.get("render", False)
+        ] else False) or (self._global_obs_conf.get("render", False))
+
         # Actions space
         if self._discrete_actions:
             self.action_space = Dict(
                 {
                     actor_id: Discrete(len(DISCRETE_ACTIONS))
-                    for actor_id in self._actor_configs.keys()
+                    for actor_id in self._actor_configs
                 }
             )
         else:
             self.action_space = Dict(
                 {
                     actor_id: Box(-1.0, 1.0, shape=(2,))
-                    for actor_id in self._actor_configs.keys()
+                    for actor_id in self._actor_configs
                 }
             )
 
         # Output space of images after preprocessing
         if self._use_depth_camera:
             self._image_space = Box(
-                0.0, 255.0, shape=(self._y_res, self._x_res, 1 * self._framestack)
+                0.0, 255.0, shape=(self._obs_y_res, self._obs_x_res, 1 * self._framestack)
             )
         else:
             self._image_space = Box(
-                -1.0, 1.0, shape=(self._y_res, self._x_res, 3 * self._framestack)
+                -1.0, 1.0, shape=(self._obs_y_res, self._obs_x_res, 3 * self._framestack)
             )
 
         # TODO: The observation space should be actor specific
@@ -311,12 +334,12 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
                             ),  # forward_speed, dist to goal
                         ]
                     )
-                    for actor_id in self._actor_configs.keys()
+                    for actor_id in self._actor_configs
                 }
             )
         else:
             self.observation_space = Dict(
-                {actor_id: self._image_space for actor_id in self._actor_configs.keys()}
+                {actor_id: self._image_space for actor_id in self._actor_configs}
             )
 
         # Set appropriate node-id to coordinate mappings for Town01 or Town02.
@@ -409,7 +432,7 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
                     try:
                         cameras_data = self._simulator.get_actor_camera_data(
                             actor_id)
-                        image = cameras_data[actor_config["camera_type"]][0]
+                        image = cameras_data[actor_config["camera_type"]][1]
                     except KeyError as e:
                         self._simulator.tick()
 
@@ -506,6 +529,13 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
 
         self._weather_spec = self._simulator.set_weather(
             self._scenario_map.get("weather_distribution", 0))
+
+        # Initialize global observation if defined
+        if self._global_obs_conf:
+            self._global_obs_conf.update({"simulator": self._simulator})
+            global_agent = AgentWrapper(MacadAgent(self._global_obs_conf))
+            global_agent.setup_sensors(self._simulator)
+            self._agents["global"] = global_agent
 
         for actor_id, actor_config in self._actor_configs.items():
             if self._done_dict.get(actor_id, True):
@@ -626,6 +656,12 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
         else:  # instance array of dict
             scenario = random.choice(scenario_parameter)
 
+        if scenario.get("max_time", None):
+            # Each step uses "STEP_TICKS" ticks
+            # So the max_steps should be (time_limit / (fix_delta * STEP_TICKS))
+            scenario.update({"max_steps": int(
+                scenario["max_time"] / (self._fixed_delta_seconds * STEP_TICKS))})
+
         self._scenario_map = scenario
         for actor_id, actor in scenario["actors"].items():
             if isinstance(actor["start"], int):
@@ -670,8 +706,7 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
         """
         assert self._framestack in [1, 2]
         # Apply preprocessing
-        config = self._actor_configs[actor_id]
-        image = preprocess_image(image, config)
+        image = preprocess_image(image)
         # Stack frames
         prev_image = self._prev_image
         self._prev_image = image
@@ -757,26 +792,26 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
                     self._done_dict[actor_id] = done
                 info_dict[actor_id] = info
 
-            # TODO: Fix tick time to be more efficient
-            for _ in range(2):
+            for _ in range(STEP_TICKS):
                 self._simulator.tick()
 
             self._done_dict["__all__"] = sum(
                 self._done_dict.values()) >= len(self._actors)
-            # Find if any actor's config has render=True & render only for
-            # that actor. NOTE: with async server stepping, enabling rendering
-            # affects the step time & therefore MAX_STEPS needs adjustments
-            render_required = [
-                k for k, v in self._actor_configs.items() if v.get("render", False)
-            ]
-            if render_required:
+
+            if self._global_obs_conf:
+                obs_dict["global"] = self._simulator.get_actor_camera_data(
+                    "global")[self._global_obs_conf["camera_type"]][1].swapaxes(0, 1)
+
+            if self.render_required:
                 images = {
                     k: self._decode_obs(k, v)
                     for k, v in obs_dict.items()
-                    if self._actor_configs[k]["render"]
+                    if k != "global" and self._actor_configs[k]["render"]
                 }
-
                 Render.multi_view_render(images, self._camera_poses)
+
+                if self._global_view_pos:
+                    Render.draw(obs_dict["global"], self._global_view_pos)
                 if self.human_agent is None:
                     Render.dummy_event_handler()
 
@@ -803,7 +838,8 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
             done (bool): Done value for actor.
             info (dict): Info for actor.
         """
-
+        # TODO: Support different DISCRETE_ACTIONS for different actors
+        # TODO: After acheive the goal, mask the reward. Reward should be 0, action should not take effect
         if self._discrete_actions:
             action = DISCRETE_ACTIONS[int(action)]
         assert len(action) == 2, "Invalid action {}".format(action)
@@ -932,9 +968,8 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
 
         # TODO: Only support one camera for each actor now
         for sensor_id, data in self._simulator.get_actor_camera_data(actor_id).items():
-            original_image = data[0]
             return (
-                self._encode_obs(actor_id, original_image, py_measurements),
+                self._encode_obs(actor_id, data[1], py_measurements),
                 reward,
                 done,
                 py_measurements,
@@ -1037,8 +1072,8 @@ class MultiCarlaEnv(*MultiAgentEnvBases):
             "start_coord": self._start_coord[actor_id],
             "end_coord": self._end_coord[actor_id],
             "current_scenario": self._scenario_map,
-            "x_res": self._x_res,
-            "y_res": self._y_res,
+            "x_res": self._obs_x_res,
+            "y_res": self._obs_y_res,
             "max_steps": self._scenario_map["max_steps"],
             "next_command": next_command,
             "previous_action": self._previous_actions.get(actor_id, None),
@@ -1151,7 +1186,7 @@ if __name__ == "__main__":
 
         env_config = multi_env_config["env"]
         actor_configs = multi_env_config["actors"]
-        for actor_id in actor_configs.keys():
+        for actor_id in actor_configs:
             total_reward_dict[actor_id] = 0
             if env._discrete_actions:
                 action_dict[actor_id] = 3  # Forward
@@ -1166,7 +1201,7 @@ if __name__ == "__main__":
             i += 1
             obs, reward, done, info = env.step(action_dict)
             action_dict = get_next_actions(info, env._discrete_actions)
-            for actor_id in total_reward_dict.keys():
+            for actor_id in total_reward_dict:
                 total_reward_dict[actor_id] += reward[actor_id]
             print(
                 ":{}\n\t".join(["Step#", "rew", "ep_rew", "done{}"]).format(

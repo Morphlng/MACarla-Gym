@@ -47,7 +47,14 @@ class AgentWrapper(object):
         :param vehicle: ego vehicle
         :return:
         """
-        bp_library = vehicle.get_world().get_blueprint_library()
+        world = vehicle.get_world()
+
+        # We will pass simulator for global observation
+        # In that case, we don't need to attach sensors to the vehicle
+        if not isinstance(vehicle, (carla.Vehicle, carla.Actor)):
+            vehicle = None
+
+        bp_library = world.get_blueprint_library()
         for sensor_spec in self._agent.sensors():
             # These are the sensors spawned on the carla world
             bp = bp_library.find(str(sensor_spec['type']))
@@ -94,10 +101,11 @@ class AgentWrapper(object):
             # create sensor
             sensor_transform = carla.Transform(
                 sensor_location, sensor_rotation)
-            sensor = vehicle.get_world().spawn_actor(bp, sensor_transform, attach_to=vehicle,
-                                                     attachment_type=sensor_spec["attachment_type"])
+            sensor = world.spawn_actor(bp, sensor_transform, attach_to=vehicle,
+                                       attachment_type=sensor_spec["attachment_type"])
             # setup callback
-            sensor.listen(CallBack(sensor_spec['id'], sensor, self._agent.sensor_interface))
+            sensor.listen(
+                CallBack(sensor_spec['id'], sensor, self._agent.sensor_interface))
             self._sensors_list.append(sensor)
 
     def cleanup(self):

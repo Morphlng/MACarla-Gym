@@ -39,7 +39,7 @@ class SensorDataProvider:
     {
         'camera': {
             'actor_id': {
-                'sensor_id': (raw_data, processed_data),
+                'sensor_id': (frame: int, processed_data: np.ndarray),
                 ...
             },
             ...
@@ -57,7 +57,6 @@ class SensorDataProvider:
     """
 
     def __init__(self):
-        self._global_data = {}
         self._camera_data_dict = {}
         self._collision_sensors = {}
         self._lane_invasion_sensors = {}
@@ -71,7 +70,7 @@ class SensorDataProvider:
             data (Dict): image data from sensor_interface.get_data(). E.g.
 
             data = {
-                "sensor_id": (raw_data : carla.Image, processed_data : ndarray),
+                "sensor_id": (frame : int, processed_data : ndarray),
                 ...
             }
         """
@@ -100,7 +99,7 @@ class SensorDataProvider:
             Dict: image data from sensor_interface.get_data(). E.g.
 
             data = {
-                "sensor_id": (raw_data : carla.Image, processed_data : ndarray),
+                "sensor_id": (frame : int, processed_data : ndarray),
                 ...
             }
         """
@@ -128,7 +127,6 @@ class SensorDataProvider:
             'camera': self._camera_data_dict,
             'collision': self._collision_sensors,
             'lane_invasion': self._lane_invasion_sensors,
-            'global': self._global_data
         }
 
     def cleanup(self):
@@ -139,7 +137,6 @@ class SensorDataProvider:
             if lane.sensor.is_alive:
                 lane.sensor.destroy()
 
-        self._global_data = {}
         self._camera_data_dict = {}
         self._collision_sensors = {}
         self._lane_invasion_sensors = {}
@@ -201,7 +198,7 @@ class CallBack(object):
         array = np.reshape(array, (image.height, image.width, 4))
         array = array[:, :, :3]
         array = array[:, :, ::-1]
-        self._data_provider.update_sensor(tag, array, image)
+        self._data_provider.update_sensor(tag, array, image.frame)
 
     def _parse_lidar_cb(self, lidar_data, tag):
         """
@@ -210,7 +207,7 @@ class CallBack(object):
         points = np.frombuffer(lidar_data.raw_data, dtype=np.dtype('f4'))
         points = copy.deepcopy(points)
         points = np.reshape(points, (int(points.shape[0] / 4), 4))
-        self._data_provider.update_sensor(tag, points, lidar_data)
+        self._data_provider.update_sensor(tag, points, lidar_data.frame)
 
     def _parse_radar_cb(self, radar_data, tag):
         """
@@ -221,7 +218,7 @@ class CallBack(object):
         points = copy.deepcopy(points)
         points = np.reshape(points, (int(points.shape[0] / 4), 4))
         points = np.flip(points, 1)
-        self._data_provider.update_sensor(tag, points, radar_data)
+        self._data_provider.update_sensor(tag, points, radar_data.frame)
 
     def _parse_gnss_cb(self, gnss_data, tag):
         """
@@ -230,7 +227,7 @@ class CallBack(object):
         array = np.array([gnss_data.latitude,
                           gnss_data.longitude,
                           gnss_data.altitude], dtype=np.float64)
-        self._data_provider.update_sensor(tag, array, gnss_data)
+        self._data_provider.update_sensor(tag, array, gnss_data.frame)
 
     def _parse_imu_cb(self, imu_data, tag):
         """
@@ -244,7 +241,7 @@ class CallBack(object):
                           imu_data.gyroscope.z,
                           imu_data.compass,
                           ], dtype=np.float64)
-        self._data_provider.update_sensor(tag, array, imu_data)
+        self._data_provider.update_sensor(tag, array, imu_data.frame)
 
 
 class SensorInterface(object):
@@ -270,7 +267,7 @@ class SensorInterface(object):
 
         self._sensors_objects[tag] = sensor
 
-    def update_sensor(self, tag, data, raw_data):
+    def update_sensor(self, tag, data, frame):
         """
         Updates the sensor
         """
@@ -278,7 +275,7 @@ class SensorInterface(object):
             raise ValueError(
                 "The sensor with tag [{}] has not been created!".format(tag))
 
-        self._new_data_buffers.put((tag, raw_data, data))
+        self._new_data_buffers.put((tag, frame, data))
 
     def get_data(self):
         """
@@ -291,7 +288,7 @@ class SensorInterface(object):
                 sensor_data = self._new_data_buffers.get(
                     True, self._queue_timeout)
 
-                # data_dict["sensor_id"] = (raw_data, processed_data)
+                # data_dict["sensor_id"] = (frame, processed_data)
                 data_dict[sensor_data[0]] = ((sensor_data[1], sensor_data[2]))
 
         except Empty:
